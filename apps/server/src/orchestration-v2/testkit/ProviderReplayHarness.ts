@@ -314,6 +314,7 @@ export function layerWithRegistry<Error>(
         layerEventSinkProvided,
         IdAllocator.layer,
         ThreadCommandExecutor.layer,
+        layerServerSettings,
       ),
     ),
   );

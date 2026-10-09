@@ -216,8 +216,12 @@ retry and the normal snooze choices.
 
 Enable **Retry capacity errors** in **Settings → General** on web and desktop,
 or **Settings → Thread behavior** on mobile, to automatically schedule retries
-when a model is temporarily at capacity. Each capacity failure gets a new random
-5–15 minute wait. The environment retries even when your clients are closed and
+when a model is temporarily at capacity. When enabled, **Retry delay** lets you
+set minimum and maximum minutes (5 and 15 by default). Each capacity failure gets
+a new random wait within that range; use equal values for a fixed delay. Both
+values must be whole minutes from 1 to 1440. Apply saves the range together, and
+changing it leaves existing scheduled retries at their current times.
+The environment retries even when your clients are closed and
 keeps the scheduled time across restarts. Cancel a pending retry from the thread;
 turning the setting off stops scheduling retries for future failures. Other errors,
 including authentication failures and exhausted usage limits, do not use this setting.

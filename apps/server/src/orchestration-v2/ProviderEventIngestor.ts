@@ -29,6 +29,7 @@ import * as Schema from "effect/Schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -309,6 +310,7 @@ export const layer: Layer.Layer<
   | IdAllocator.IdAllocatorV2
   | ProjectionStore.ProjectionStoreV2
   | ThreadCommandExecutor.ThreadCommandExecutor
+  | ServerSettings.ServerSettingsService
 > = Layer.effect(
   ProviderEventIngestorV2,
   Effect.gen(function* () {
@@ -316,6 +318,7 @@ export const layer: Layer.Layer<
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+    const settings = yield* ServerSettings.ServerSettingsService;
     const analytics = yield* ProviderTurnAnalytics;
     const completedTurnAnalytics = new Set<string>();
 
@@ -674,21 +677,23 @@ export const layer: Layer.Layer<
                 threadId: input.threadId,
                 itemId: item.id,
               });
-              const retryAt =
+              let retryAt =
                 persisted?.type === "error" && persisted.failure.class === "capacity_limit"
                   ? persisted.failure.resetAt
                   : null;
+              if (retryAt == null) {
+                const { capacityRetryDelay } = yield* settings.getSettings;
+                const milliseconds = yield* Random.nextIntBetween(
+                  capacityRetryDelay.minMinutes * 60_000,
+                  capacityRetryDelay.maxMinutes * 60_000,
+                );
+                retryAt = DateTime.formatIso(DateTime.add(occurredAt, { milliseconds }));
+              }
               item = {
                 ...item,
                 failure: {
                   ...item.failure,
-                  resetAt:
-                    retryAt ??
-                    DateTime.formatIso(
-                      DateTime.add(occurredAt, {
-                        milliseconds: yield* Random.nextIntBetween(5 * 60_000, 15 * 60_000),
-                      }),
-                    ),
+                  resetAt: retryAt,
                 },
               };
             }

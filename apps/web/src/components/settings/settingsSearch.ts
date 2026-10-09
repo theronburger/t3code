@@ -312,7 +312,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "retry-capacity-errors",
     title: "Retry capacity errors",
     to: "/settings/general",
-    searchTerms: ["model capacity overloaded automatic retry random wait five fifteen minutes"],
+    searchTerms: [
+      "model capacity overloaded automatic retry random wait delay range minimum maximum minutes",
+    ],
   },
   {
     id: "working-shelf",

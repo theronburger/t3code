@@ -27,6 +27,7 @@ const SHARED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleOnMerge",
   "autoResumeLimitedThreads",
   "autoRetryCapacityErrors",
+  "capacityRetryDelay",
   "snoozeLimitedThreads",
   "newWorktreesStartFromOrigin",
   "sourceControlWritingStyle",

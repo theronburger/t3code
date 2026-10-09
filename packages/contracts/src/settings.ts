@@ -91,6 +91,25 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
+export const MIN_CAPACITY_RETRY_DELAY_MINUTES = 1;
+export const MAX_CAPACITY_RETRY_DELAY_MINUTES = 1440;
+const CapacityRetryDelayMinutes = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_CAPACITY_RETRY_DELAY_MINUTES,
+    maximum: MAX_CAPACITY_RETRY_DELAY_MINUTES,
+  }),
+);
+export const CapacityRetryDelay = Schema.Struct({
+  minMinutes: CapacityRetryDelayMinutes,
+  maxMinutes: CapacityRetryDelayMinutes,
+}).check(
+  Schema.makeFilter(
+    (delay) =>
+      delay.minMinutes <= delay.maxMinutes || "Minimum retry delay must not exceed maximum.",
+  ),
+);
+export type CapacityRetryDelay = typeof CapacityRetryDelay.Type;
+const DEFAULT_CAPACITY_RETRY_DELAY: CapacityRetryDelay = { minMinutes: 5, maxMinutes: 15 };
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
 export const GlassOpacity = Schema.Int.check(
@@ -1140,6 +1159,9 @@ export const ServerSettings = Schema.Struct({
   snoozeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoResumeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoRetryCapacityErrors: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  capacityRetryDelay: CapacityRetryDelay.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CAPACITY_RETRY_DELAY)),
+  ),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
   // Legacy flat fields retained for old settings files and old clients. New
@@ -1448,6 +1470,7 @@ export const ServerSettingsPatch = Schema.Struct({
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   autoResumeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   autoRetryCapacityErrors: Schema.optionalKey(Schema.Boolean),
+  capacityRetryDelay: Schema.optionalKey(CapacityRetryDelay),
   snoozeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
