@@ -474,6 +474,7 @@ const expectModelFailure = (errorMessage: string) =>
     assert.isTrue(
       terminal.type === "turn.terminal" &&
         terminal.status === "failed" &&
+        terminal.failure.class === "capacity_limit" &&
         terminal.failure.message === errorMessage,
     );
   }).pipe(Effect.scoped, Effect.provide(layerTest));

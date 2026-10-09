@@ -1,4 +1,9 @@
-import { CommandId, MessageId, type OrchestrationV2Command } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  type OrchestrationV2Command,
+  type ServerSettings as ServerSettingsValue,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,15 +15,18 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 /** The persisted run and reset form the identity of one recovery opportunity. */
 export function limitRecoveryCommand(
   thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
-  autoResume: boolean,
+  preferences: Pick<
+    ServerSettingsValue,
+    "autoResumeLimitedThreads" | "autoRetryCapacityErrors" | "snoozeLimitedThreads"
+  >,
   nowMs: number,
-  snooze = false,
-  autoRetryCapacityErrors = false,
 ): OrchestrationV2Command | null {
   const capacityLimited = thread.lastErrorClass === "capacity_limit";
   const resetAt = capacityLimited ? thread.capacityRetryAt : thread.usageLimitResetAt;
-  const scheduleResume = capacityLimited ? autoRetryCapacityErrors : autoResume;
-  const scheduleSnooze = !capacityLimited && snooze;
+  const scheduleResume = capacityLimited
+    ? preferences.autoRetryCapacityErrors
+    : preferences.autoResumeLimitedThreads;
+  const scheduleSnooze = !capacityLimited && preferences.snoozeLimitedThreads;
   if (
     thread.status !== "failed" ||
     (thread.lastErrorClass !== "usage_limit" && !capacityLimited) ||
@@ -91,13 +99,7 @@ const makeSweep = Effect.gen(function* () {
     });
     const nowMs = DateTime.toEpochMillis(now);
     for (const thread of candidates) {
-      const command = limitRecoveryCommand(
-        thread,
-        preferences.autoResumeLimitedThreads,
-        nowMs,
-        preferences.snoozeLimitedThreads,
-        preferences.autoRetryCapacityErrors,
-      );
+      const command = limitRecoveryCommand(thread, preferences, nowMs);
       if (command === null) continue;
       yield* threads.dispatch(command).pipe(
         Effect.catchCause((cause) =>

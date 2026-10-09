@@ -25,7 +25,9 @@ it.each([
   { message: "The model is at capacity. Please try again later.", code: "internalServerError" },
   { message: "Claude is temporarily overloaded.", code: "api_error_529" },
   { message: "Request failed.", code: "overloaded_error" },
+  { message: "Please try again later.", code: "serverOverloaded" },
   { message: "This model is currently overloaded.", code: null },
+  { message: "The model is currently at capacity due to high demand.", code: null },
 ])("recognizes temporary provider capacity: %s", (input) => {
   assert.equal(makeProviderFailure({ ...input, class: "provider_error" }).class, "capacity_limit");
 });
@@ -39,12 +41,28 @@ it.each([
     class: "validation_error" as const,
   },
   {
+    message: "The context window is at capacity.",
+    code: "contextWindowExceeded",
+    class: "provider_error" as const,
+  },
+  { message: "The account is at capacity.", code: null, class: "provider_error" as const },
+  {
+    message: "Context window capacity exceeded.",
+    code: "capacity_exceeded",
+    class: "provider_error" as const,
+  },
+  {
     message: "Connection failed.",
     code: "httpConnectionFailed",
     class: "transport_error" as const,
   },
-  { message: "At capacity.", code: null, class: "permission_error" as const },
-  { message: "At capacity.", code: null, class: "provider_error" as const, retryable: false },
+  { message: "Model is at capacity.", code: null, class: "permission_error" as const },
+  {
+    message: "Model is at capacity.",
+    code: null,
+    class: "provider_error" as const,
+    retryable: false,
+  },
 ])("keeps other failures out of capacity recovery: %s", (input) => {
   assert.equal(makeProviderFailure(input).class, input.class);
 });

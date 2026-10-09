@@ -4459,11 +4459,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   const dispatchMessage = (
-    command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
+    inputCommand: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) =>
     Effect.gen(function* () {
+      let command = inputCommand;
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
@@ -4529,6 +4530,34 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             },
           });
           return;
+        }
+      }
+
+      const continuationOfRunId =
+        command.usageLimitContinuationOfRunId ?? command.manualContinuationOfRunId;
+      if (continuationOfRunId !== undefined) {
+        const source = projection.runs.find((run) => run.id === continuationOfRunId);
+        if (
+          source?.startedAt === null &&
+          latestRootProviderFailure(source, projection.turnItems)?.class === "capacity_limit"
+        ) {
+          // Session or thread setup failed before the provider received the prompt.
+          const original = projection.messages.find(
+            (message) => message.id === source.userMessageId,
+          );
+          if (original === undefined) {
+            return yield* new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause: "The original message is unavailable for this capacity retry.",
+            });
+          }
+          command = {
+            ...command,
+            text: original.text,
+            attachments: original.attachments,
+            context: original.context,
+          };
         }
       }
 

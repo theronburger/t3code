@@ -2111,6 +2111,7 @@ function CapacityRetryDelaySettings() {
         !Equal.equals(settings.capacityRetryDelay, DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay) ? (
           <SettingResetButton
             label="capacity retry delay"
+            disabled={disabled}
             onClick={() =>
               updateSettings({ capacityRetryDelay: DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay })
             }
@@ -2155,7 +2156,7 @@ function CapacityRetryDelayFields({
       }}
     >
       <div className="flex flex-wrap items-end gap-3">
-        <label className="space-y-1 text-xs text-muted-foreground">
+        <label className="w-32 space-y-1 text-xs text-muted-foreground">
           <span className="block">Minimum (minutes)</span>
           <Input
             size="sm"
@@ -2163,7 +2164,6 @@ function CapacityRetryDelayFields({
             min={MIN_CAPACITY_RETRY_DELAY_MINUTES}
             max={MAX_CAPACITY_RETRY_DELAY_MINUTES}
             step={1}
-            className="w-32"
             value={minimum}
             placeholder={mixed ? "Mixed" : undefined}
             disabled={disabled}
@@ -2173,7 +2173,7 @@ function CapacityRetryDelayFields({
             onChange={(event) => setMinimum(event.target.value)}
           />
         </label>
-        <label className="space-y-1 text-xs text-muted-foreground">
+        <label className="w-32 space-y-1 text-xs text-muted-foreground">
           <span className="block">Maximum (minutes)</span>
           <Input
             size="sm"
@@ -2181,7 +2181,6 @@ function CapacityRetryDelayFields({
             min={MIN_CAPACITY_RETRY_DELAY_MINUTES}
             max={MAX_CAPACITY_RETRY_DELAY_MINUTES}
             step={1}
-            className="w-32"
             value={maximum}
             placeholder={mixed ? "Mixed" : undefined}
             disabled={disabled}
@@ -2201,7 +2200,7 @@ function CapacityRetryDelayFields({
         aria-live="polite"
       >
         {editing && !valid
-          ? "Enter whole minutes from 1 to 1440, with minimum no greater than maximum."
+          ? `Enter whole minutes from ${MIN_CAPACITY_RETRY_DELAY_MINUTES} to ${MAX_CAPACITY_RETRY_DELAY_MINUTES}, with minimum no greater than maximum.`
           : "Set both values to the same number for a fixed delay."}
       </p>
     </form>

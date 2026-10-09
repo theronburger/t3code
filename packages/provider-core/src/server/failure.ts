@@ -163,10 +163,8 @@ export function makeProviderFailure(input: {
       input.class === "provider_error" ||
       input.class === "transport_error") &&
     input.retryable !== false &&
-    (/^(?:overloaded(?:_error)?|(?:server|model)_overloaded|model_capacity_exceeded|capacity_exceeded|api_error_529)$/iu.test(
-      code ?? "",
-    ) ||
-      /\b(?:at capacity|temporarily overloaded|(?:model|server|api|service) (?:is |currently |is currently )?overloaded)\b/iu.test(
+    (/^(?:overloaded(?:_error)?|(?:server|model)_?overloaded|api_error_529)$/iu.test(code ?? "") ||
+      /\b(?:(?:model|server|api|service) (?:is )?(?:(?:currently|temporarily) )?(?:at capacity|overloaded)|temporarily overloaded)\b/iu.test(
         message,
       ))
       ? "capacity_limit"

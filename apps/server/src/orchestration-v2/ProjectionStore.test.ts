@@ -2474,6 +2474,13 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       })).find((thread) => thread.id === threadId);
       assert.equal(candidate?.capacityRetryAt, resetAt);
       assert.isNull(candidate?.usageLimitResetAt);
+      for (const shell of [
+        ProjectionStore.threadShellFromProjection(yield* store.getThreadProjection(threadId)),
+        (yield* store.getShellSnapshot()).threads.find((thread) => thread.id === threadId)!,
+      ]) {
+        assert.equal(shell.capacityRetryAt, resetAt);
+        assert.isNull(shell.usageLimitResetAt);
+      }
       yield* store.apply({
         id: EventId.make("capacity-recovery:armed"),
         type: "thread.metadata-updated",
@@ -2593,6 +2600,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             status: sqlShell.status,
             lastErrorClass: sqlShell.lastErrorClass,
             usageLimitResetAt: sqlShell.usageLimitResetAt,
+            capacityRetryAt: sqlShell.capacityRetryAt,
             latestRunId: sqlShell.latestRunId,
             latestRunCompletedAt: sqlShell.latestRunCompletedAt,
             updatedAt: sqlShell.updatedAt,

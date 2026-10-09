@@ -24,7 +24,6 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -35,6 +34,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
 import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failure";
+import { capacityRetryTime } from "./capacityRetry.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 
@@ -683,11 +683,7 @@ export const layer: Layer.Layer<
                   : null;
               if (retryAt == null) {
                 const { capacityRetryDelay } = yield* settings.getSettings;
-                const milliseconds = yield* Random.nextIntBetween(
-                  capacityRetryDelay.minMinutes * 60_000,
-                  capacityRetryDelay.maxMinutes * 60_000,
-                );
-                retryAt = DateTime.formatIso(DateTime.add(occurredAt, { milliseconds }));
+                retryAt = yield* capacityRetryTime(capacityRetryDelay, occurredAt);
               }
               item = {
                 ...item,
