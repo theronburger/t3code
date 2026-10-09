@@ -13,18 +13,23 @@ export function limitRecoveryCommand(
   autoResume: boolean,
   nowMs: number,
   snooze = false,
+  autoRetryCapacityErrors = false,
 ): OrchestrationV2Command | null {
+  const capacityLimited = thread.lastErrorClass === "capacity_limit";
+  const resetAt = capacityLimited ? thread.capacityRetryAt : thread.usageLimitResetAt;
+  const scheduleResume = capacityLimited ? autoRetryCapacityErrors : autoResume;
+  const scheduleSnooze = !capacityLimited && snooze;
   if (
     thread.status !== "failed" ||
-    thread.lastErrorClass !== "usage_limit" ||
+    (thread.lastErrorClass !== "usage_limit" && !capacityLimited) ||
     !thread.latestRunId ||
-    !thread.usageLimitResetAt ||
+    !resetAt ||
     thread.archivedAt !== null ||
     thread.settledOverride === "settled" ||
     thread.pendingRuntimeRequest !== null
   )
     return null;
-  const resetMs = Date.parse(thread.usageLimitResetAt);
+  const resetMs = Date.parse(resetAt);
   // An already-expired window reported with a fresh failure cannot start a retry loop.
   if (
     !Number.isFinite(resetMs) ||
@@ -33,17 +38,17 @@ export function limitRecoveryCommand(
     return null;
   const identity = `${thread.id}:${thread.latestRunId}:${resetMs}`;
   const recovery = thread.limitRecovery;
-  if (recovery?.runId !== thread.latestRunId || recovery.resetAt !== thread.usageLimitResetAt) {
-    if (!autoResume && (!snooze || resetMs <= nowMs)) return null;
+  if (recovery?.runId !== thread.latestRunId || recovery.resetAt !== resetAt) {
+    if (!scheduleResume && (!scheduleSnooze || resetMs <= nowMs)) return null;
     return {
       type: "thread.metadata.update",
       commandId: CommandId.make(`limit-arm:${identity}`),
       threadId: thread.id,
       limitRecovery: {
         runId: thread.latestRunId,
-        resetAt: thread.usageLimitResetAt,
-        autoResume,
-        snooze: snooze && resetMs > nowMs,
+        resetAt,
+        autoResume: scheduleResume,
+        snooze: scheduleSnooze && resetMs > nowMs,
       },
     };
   }
@@ -75,12 +80,13 @@ const makeSweep = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
-  return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
+  return Effect.fn("ProviderLimitRecoveryWorker.sweep")(function* () {
     const preferences = yield* settings.getSettings;
     const now = yield* DateTime.now;
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
+      autoRetryCapacityErrors: preferences.autoRetryCapacityErrors,
       snooze: preferences.snoozeLimitedThreads,
     });
     const nowMs = DateTime.toEpochMillis(now);
@@ -90,6 +96,7 @@ const makeSweep = Effect.gen(function* () {
         preferences.autoResumeLimitedThreads,
         nowMs,
         preferences.snoozeLimitedThreads,
+        preferences.autoRetryCapacityErrors,
       );
       if (command === null) continue;
       yield* threads.dispatch(command).pipe(
@@ -110,6 +117,6 @@ export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const sweep = yield* makeSweep;
     const scheduler = yield* Scheduler.Scheduler;
-    yield* scheduler.register("usage-limit-recovery", sweep());
+    yield* scheduler.register("provider-limit-recovery", sweep());
   }),
 );

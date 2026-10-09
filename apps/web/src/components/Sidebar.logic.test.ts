@@ -929,33 +929,36 @@ describe("resolveSidebarThreadStatus", () => {
     ).toBe("working");
   });
 
-  it("keeps usage-limit stops Limited and visible until the thread recovers", () => {
-    const limited = {
-      ...runtime,
-      status: "failed" as const,
-      lastError: "Plan limit reached",
-      lastErrorClass: "usage_limit" as const,
-    };
-    expect(resolveSidebarThreadStatus({ ...idle, runtime: limited })).toBe("limited");
-    expect(
-      resolveSidebarThreadStatus({ ...idle, runtime: { ...limited, status: "running" } }),
-    ).toBe("working");
-    expect(
-      resolveSidebarThreadStatus({ ...idle, runtime: { ...limited, status: "completed" } }),
-    ).toBe("ready");
-    expect(resolveSidebarV2TopStatus({ status: "limited", isUnread: false, isWoke: false })).toBe(
-      "limited",
-    );
-    expect(
-      shouldRecedeSidebarThread({
-        status: "limited",
-        isUnread: false,
-        isWoke: false,
-        isActive: false,
-        isSelected: false,
-      }),
-    ).toBe(false);
-  });
+  it.each(["usage_limit", "capacity_limit"] as const)(
+    "keeps %s stops Limited and visible until the thread recovers",
+    (failureClass) => {
+      const limited = {
+        ...runtime,
+        status: "failed" as const,
+        lastError: "Plan limit reached",
+        lastErrorClass: failureClass,
+      };
+      expect(resolveSidebarThreadStatus({ ...idle, runtime: limited })).toBe("limited");
+      expect(
+        resolveSidebarThreadStatus({ ...idle, runtime: { ...limited, status: "running" } }),
+      ).toBe("working");
+      expect(
+        resolveSidebarThreadStatus({ ...idle, runtime: { ...limited, status: "completed" } }),
+      ).toBe("ready");
+      expect(resolveSidebarV2TopStatus({ status: "limited", isUnread: false, isWoke: false })).toBe(
+        "limited",
+      );
+      expect(
+        shouldRecedeSidebarThread({
+          status: "limited",
+          isUnread: false,
+          isWoke: false,
+          isActive: false,
+          isSelected: false,
+        }),
+      ).toBe(false);
+    },
+  );
 
   it("reports failed only while the latest run failed", () => {
     expect(

@@ -147,6 +147,13 @@ describe("V2 session presentation", () => {
         failure: { ...retryItem.failure, class: "usage_limit" },
       }),
     ).toMatchObject({ label: "Usage limit reached after 2/10 retries" });
+    expect(
+      providerErrorPresentation({
+        ...retryItem,
+        status: "failed",
+        failure: { ...retryItem.failure, class: "capacity_limit" },
+      }),
+    ).toMatchObject({ label: "Model at capacity after 2/10 retries" });
     const recoveredLimit = {
       ...retryItem,
       status: "completed" as const,

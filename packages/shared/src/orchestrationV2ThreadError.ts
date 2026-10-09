@@ -42,6 +42,8 @@ export function threadErrorSummary(
   return {
     usageLimitResetAt:
       currentFailure?.class === "usage_limit" ? (currentFailure.resetAt ?? null) : null,
+    capacityRetryAt:
+      currentFailure?.class === "capacity_limit" ? (currentFailure.resetAt ?? null) : null,
     lastError: sessionError ?? failure?.message ?? null,
     lastErrorClass:
       sessionError !== null && sessionError !== failure?.message ? null : (failure?.class ?? null),
@@ -79,10 +81,10 @@ export function runRanAfter(
 
 /**
  * The latest run that actually started, when it stopped because the
- * subscription limit was reached. Queued messages after that run must stay
+ * provider's usage or capacity limit was reached. Queued messages after that run must stay
  * queued instead of being sent into the same limit.
  */
-export function usageLimitBlockedRun(
+export function providerLimitBlockedRun(
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
   sessionError: string | null,
@@ -90,7 +92,9 @@ export function usageLimitBlockedRun(
   const executed = latestExecutedRun(runs);
   if (executed?.status !== "failed") return null;
   const summary = threadErrorSummary(latestRootProviderFailure(executed, turnItems), sessionError);
-  return summary.lastErrorClass === "usage_limit" ? executed : null;
+  return summary.lastErrorClass === "usage_limit" || summary.lastErrorClass === "capacity_limit"
+    ? executed
+    : null;
 }
 
 /**
@@ -98,12 +102,12 @@ export function usageLimitBlockedRun(
  * Callers that treat the highest-ordinal run as the thread outcome would
  * otherwise hide the limit.
  */
-export function usageLimitRunPresentedAsLatest(
+export function providerLimitRunPresentedAsLatest(
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
   sessionError: string | null,
 ): OrchestrationV2Run | null {
-  const blocked = usageLimitBlockedRun(runs, turnItems, sessionError);
+  const blocked = providerLimitBlockedRun(runs, turnItems, sessionError);
   return blocked !== null && runs.some((run) => run.ordinal > blocked.ordinal) ? blocked : null;
 }
 

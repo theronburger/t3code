@@ -29,6 +29,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Random from "effect/Random";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -1345,6 +1346,73 @@ layer("ProviderEventIngestorV2", (it) => {
           );
         }),
       ),
+  );
+
+  it.effect(
+    "persists fresh capacity jitter per turn and keeps it on duplicate terminal delivery",
+    () =>
+      Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const threadEvent = yield* threadCreatedEvent(now);
+        yield* eventSink.write({ events: [threadEvent] });
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId: threadEvent.threadId,
+        });
+        const delays: Array<number> = [];
+        for (let ordinal = 1; ordinal <= 3; ordinal++) {
+          const startedAt = yield* DateTime.now;
+          const input = {
+            providerSessionId,
+            providerInstanceId: modelSelection.instanceId,
+            threadId: threadEvent.threadId,
+            event: {
+              type: "turn.terminal" as const,
+              driver: CODEX_DRIVER,
+              providerThreadId: idAllocator.derive.providerThread({
+                driver: CODEX_DRIVER,
+                nativeThreadId: "capacity-thread",
+              }),
+              providerTurnId: idAllocator.derive.providerTurn({
+                driver: CODEX_DRIVER,
+                nativeTurnId: `capacity-turn-${ordinal}`,
+              }),
+              runOrdinal: ordinal,
+              failureItemOrdinal: ordinal,
+              status: "failed" as const,
+              failure: makeProviderFailure({
+                class: "provider_error",
+                message: "Model is at capacity.",
+              }),
+              threadDisposition: "reusable" as const,
+            },
+          };
+          const stored = yield* ingestor.ingestNormalized(input);
+          const event = stored[0]!.event;
+          assert.equal(event.type, "turn-item.updated");
+          if (event.type !== "turn-item.updated" || event.payload.type !== "error") return;
+          const retryAt = event.payload.failure.resetAt;
+          assert.isDefined(retryAt);
+          const delay = Date.parse(retryAt!) - DateTime.toEpochMillis(startedAt);
+          assert.isAtLeast(delay, 5 * 60_000);
+          assert.isAtMost(delay, 15 * 60_000);
+          delays.push(delay);
+          yield* TestClock.adjust("1 second");
+          const duplicate = yield* ingestor.ingestNormalized(input);
+          const duplicateEvent = duplicate[0]!.event;
+          assert.equal(duplicateEvent.type, "turn-item.updated");
+          if (
+            duplicateEvent.type !== "turn-item.updated" ||
+            duplicateEvent.payload.type !== "error"
+          )
+            return;
+          assert.equal(duplicateEvent.payload.failure.resetAt, retryAt);
+        }
+        assert.equal(new Set(delays).size, 3);
+      }).pipe(Random.withSeed("capacity-retry-persistence")),
   );
 
   it.effect("persists a failed provider terminal as one expected error item", () =>

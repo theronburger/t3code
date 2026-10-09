@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
 type RecoveryProps = {
+  kind: "usage_limit" | "capacity_limit";
   runId: RunId;
   resetAt: string | null;
   stoppedAt: string;
@@ -17,23 +18,38 @@ type RecoveryProps = {
   onChange: (recovery: OrchestrationV2LimitRecoveryUpdate) => Promise<void>;
 };
 
-export function usageLimitRecoveryBannerItem(props: RecoveryProps): ComposerBannerStackItem {
-  const { runId, resetAt, stoppedAt } = props;
+export function providerLimitRecoveryBannerItem(props: RecoveryProps): ComposerBannerStackItem {
+  const { runId, resetAt, stoppedAt, kind } = props;
+  const capacityLimited = kind === "capacity_limit";
+  const scheduled =
+    props.recovery?.runId === runId &&
+    props.recovery.resetAt === resetAt &&
+    props.recovery.autoResume;
   const canSchedule = resetAt !== null && Date.parse(resetAt) > Date.parse(stoppedAt);
+  const capacityTimeLabel = scheduled ? "Retry scheduled for" : "Retry available at";
+  const timeLabel = capacityLimited ? capacityTimeLabel : "Resets";
   return {
-    id: `usage-limit-recovery:${runId}`,
+    id: `provider-limit-recovery:${runId}`,
     variant: "warning",
     priority: "urgent",
     icon: <GaugeIcon />,
-    title: "Usage limit reached",
+    title: capacityLimited ? "Model at capacity" : "Usage limit reached",
     description: resetAt
-      ? `Resets ${new Date(resetAt).toLocaleString()}`
+      ? `${timeLabel} ${new Date(resetAt).toLocaleString()}`
       : "Reset time unavailable; retry manually",
     actions: canSchedule ? <RecoveryActions key={`${runId}:${resetAt}`} {...props} /> : null,
   };
 }
 
-function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: RecoveryProps) {
+function RecoveryActions({
+  runId,
+  resetAt,
+  recovery,
+  snoozedUntil,
+  onChange,
+  kind,
+}: RecoveryProps) {
+  const capacityLimited = kind === "capacity_limit";
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -46,6 +62,8 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
 
   const scheduled =
     recovery?.runId === runId && recovery.resetAt === resetAt && recovery.autoResume;
+  const scheduleLabel = capacityLimited ? "Schedule retry" : "Resume at reset";
+  const cancelLabel = capacityLimited ? "Cancel retry" : "Cancel auto-resume";
   const snoozed =
     recovery?.snooze === true &&
     recovery.runId === runId &&
@@ -76,9 +94,9 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button size="xs" variant="ghost" disabled={pending} onClick={() => void toggle("resume")}>
-        {pending ? "Saving..." : scheduled ? "Cancel auto-resume" : "Resume at reset"}
+        {pending ? "Saving..." : scheduled ? cancelLabel : scheduleLabel}
       </Button>
-      {!snoozed ? (
+      {!snoozed && !capacityLimited ? (
         <Button
           size="xs"
           variant="ghost"

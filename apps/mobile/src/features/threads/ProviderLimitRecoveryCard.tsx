@@ -8,7 +8,7 @@ import { AppText as Text } from "../../components/AppText";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-export function UsageLimitRecoveryCard({
+export function ProviderLimitRecoveryCard({
   thread,
   environmentId,
 }: {
@@ -18,7 +18,8 @@ export function UsageLimitRecoveryCard({
   const updateMetadata = useAtomCommand(threadEnvironment.updateMetadata);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const resetAt = thread.runtime?.usageLimitResetAt ?? null;
+  const capacityLimited = thread.runtime?.lastErrorClass === "capacity_limit";
+  const resetAt = thread.runtime?.usageLimitResetAt ?? thread.runtime?.capacityRetryAt ?? null;
   const canSchedule =
     resetAt !== null &&
     Date.parse(resetAt) > Date.parse(thread.latestRun?.completedAt ?? thread.updatedAt);
@@ -26,9 +27,15 @@ export function UsageLimitRecoveryCard({
   const recovery = thread.limitRecovery;
   const scheduled =
     recovery?.runId === runId && recovery?.resetAt === resetAt && recovery?.autoResume;
+  const capacityTimeLabel = scheduled
+    ? "Capacity retry scheduled for"
+    : "Capacity retry available at";
+  const timeLabel = capacityLimited ? capacityTimeLabel : "Usage limit resets";
+  const scheduleLabel = capacityLimited ? "Schedule retry" : "Resume at reset";
+  const cancelLabel = capacityLimited ? "Cancel retry" : "Cancel auto-resume";
   if (
     thread.runtime?.status !== "failed" ||
-    thread.runtime.lastErrorClass !== "usage_limit" ||
+    (thread.runtime.lastErrorClass !== "usage_limit" && !capacityLimited) ||
     !runId
   )
     return null;
@@ -70,7 +77,7 @@ export function UsageLimitRecoveryCard({
     <View className="mx-3 mb-2 gap-2 rounded-xl border border-warning-foreground/25 bg-screen p-3">
       <Text className="text-sm text-warning-foreground">
         {resetAt
-          ? `Usage limit resets ${DateTime.toDateUtc(DateTime.makeUnsafe(resetAt)).toLocaleString()}.`
+          ? `${timeLabel} ${DateTime.toDateUtc(DateTime.makeUnsafe(resetAt)).toLocaleString()}.`
           : "The provider did not report a reset time. Retry manually when your limit is available."}
       </Text>
       {canSchedule ? (
@@ -82,19 +89,21 @@ export function UsageLimitRecoveryCard({
             className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
           >
             <Text className="text-sm text-foreground">
-              {scheduled ? "Cancel auto-resume" : "Resume at reset"}
+              {scheduled ? cancelLabel : scheduleLabel}
             </Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={pending || (!snoozed && Date.parse(resetAt!) <= Date.now())}
-            onPress={() => void toggle("snooze")}
-            className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
-          >
-            <Text className="text-sm text-foreground">
-              {snoozed ? "Wake now" : "Snooze until reset"}
-            </Text>
-          </Pressable>
+          {!capacityLimited ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={pending || (!snoozed && Date.parse(resetAt!) <= Date.now())}
+              onPress={() => void toggle("snooze")}
+              className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
+            >
+              <Text className="text-sm text-foreground">
+                {snoozed ? "Wake now" : "Snooze until reset"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       {error ? (

@@ -587,6 +587,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
         ? ["Auto-resume limited threads"]
         : []),
+      ...(settings.autoRetryCapacityErrors !== DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors
+        ? ["Retry capacity errors"]
+        : []),
       ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
         ? ["Snooze limited threads"]
         : []),
@@ -709,6 +712,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.autoResumeLimitedThreads,
+      settings.autoRetryCapacityErrors,
       settings.snoozeLimitedThreads,
       settings.sidebarProjectGroupingMode,
       settings.sidebarProjectSortOrder,
@@ -816,6 +820,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
+      autoRetryCapacityErrors: DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -2352,6 +2357,22 @@ export function GeneralSettingsPanel() {
                 updateSettings({ autoResumeLimitedThreads: Boolean(checked) })
               }
               aria-label="Auto-resume limited threads"
+            />
+          }
+        />
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("retry-capacity-errors")}
+          description="Automatically schedule retries for temporary model capacity errors after a random 5–15 minute wait. Turning this off leaves scheduled retries in place; cancel them from their threads."
+          settingKeys={["autoRetryCapacityErrors"]}
+          control={
+            <ScopedSwitch
+              settingKeys={["autoRetryCapacityErrors"]}
+              checked={settings.autoRetryCapacityErrors}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoRetryCapacityErrors: Boolean(checked) })
+              }
+              aria-label="Retry capacity errors"
             />
           }
         />

@@ -24,6 +24,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -652,27 +653,48 @@ export const layer: Layer.Layer<
               return dismissed;
             }
             const occurredAt = yield* DateTime.now;
+            let item = makeProviderFailureTurnItem({
+              idAllocator,
+              driver: input.event.driver,
+              threadId: input.threadId,
+              runId: input.runId ?? null,
+              nodeId: input.nodeId ?? null,
+              providerThreadId: input.event.providerThreadId,
+              providerTurnId: input.event.providerTurnId,
+              itemOrdinal: input.event.failureItemOrdinal,
+              failure: input.event.failure,
+              ...(input.event.retry === undefined ? {} : { retry: input.event.retry }),
+              ...(input.event.retryStartedAt === undefined
+                ? {}
+                : { retryStartedAt: input.event.retryStartedAt }),
+              occurredAt,
+            });
+            if (item.failure.class === "capacity_limit") {
+              const persisted = yield* projections.getTurnItem({
+                threadId: input.threadId,
+                itemId: item.id,
+              });
+              const retryAt =
+                persisted?.type === "error" && persisted.failure.class === "capacity_limit"
+                  ? persisted.failure.resetAt
+                  : null;
+              item = {
+                ...item,
+                failure: {
+                  ...item.failure,
+                  resetAt:
+                    retryAt ??
+                    DateTime.formatIso(
+                      DateTime.add(occurredAt, {
+                        milliseconds: yield* Random.nextIntBetween(5 * 60_000, 15 * 60_000),
+                      }),
+                    ),
+                },
+              };
+            }
             return [
               ...dismissed,
-              yield* makeDomainEvent(input, {
-                type: "turn-item.updated",
-                payload: makeProviderFailureTurnItem({
-                  idAllocator,
-                  driver: input.event.driver,
-                  threadId: input.threadId,
-                  runId: input.runId ?? null,
-                  nodeId: input.nodeId ?? null,
-                  providerThreadId: input.event.providerThreadId,
-                  providerTurnId: input.event.providerTurnId,
-                  itemOrdinal: input.event.failureItemOrdinal,
-                  failure: input.event.failure,
-                  ...(input.event.retry === undefined ? {} : { retry: input.event.retry }),
-                  ...(input.event.retryStartedAt === undefined
-                    ? {}
-                    : { retryStartedAt: input.event.retryStartedAt }),
-                  occurredAt,
-                }),
-              }),
+              yield* makeDomainEvent(input, { type: "turn-item.updated", payload: item }),
             ];
         }
       }).pipe(

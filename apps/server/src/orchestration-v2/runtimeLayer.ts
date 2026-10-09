@@ -1,4 +1,4 @@
-import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
+import * as ProviderLimitRecoveryWorker from "./ProviderLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as OrchestrationCommandReceipts from "../persistence/OrchestrationCommandReceipts.ts";
@@ -349,7 +349,7 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
   layerSecretRequestsProvided,
-  UsageLimitRecoveryWorker.layer.pipe(
+  ProviderLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),
   ),
   layerProviderContinuationWorkerProvided,

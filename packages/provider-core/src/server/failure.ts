@@ -157,13 +157,27 @@ export function makeProviderFailure(input: {
   const rawCode = input.code ?? stringField(input.cause, "code") ?? null;
   const code =
     rawCode === null ? null : boundedText(rawCode, MAX_PROVIDER_FAILURE_CODE_LENGTH) || null;
+  const failureClass =
+    (input.class === undefined ||
+      input.class === "unknown" ||
+      input.class === "provider_error" ||
+      input.class === "transport_error") &&
+    input.retryable !== false &&
+    (/^(?:overloaded(?:_error)?|(?:server|model)_overloaded|model_capacity_exceeded|capacity_exceeded|api_error_529)$/iu.test(
+      code ?? "",
+    ) ||
+      /\b(?:at capacity|temporarily overloaded|(?:model|server|api|service) (?:is |currently |is currently )?overloaded)\b/iu.test(
+        message,
+      ))
+      ? "capacity_limit"
+      : (input.class ?? "unknown");
 
   return {
-    class: input.class ?? "unknown",
+    class: failureClass,
     message: message || DEFAULT_PROVIDER_FAILURE_MESSAGE,
     code,
     retryable: input.retryable ?? null,
-    ...(input.class === "usage_limit" &&
+    ...((failureClass === "usage_limit" || failureClass === "capacity_limit") &&
     input.resetAt != null &&
     Number.isFinite(Date.parse(input.resetAt))
       ? { resetAt: DateTime.formatIso(DateTime.makeUnsafe(input.resetAt)) }
@@ -199,7 +213,12 @@ export function makeProviderFailureTurnItem(input: {
     parentItemId: null,
     ordinal: input.itemOrdinal,
     status: "failed",
-    title: input.failure.class === "usage_limit" ? "Usage limit reached" : "Provider error",
+    title:
+      input.failure.class === "usage_limit"
+        ? "Usage limit reached"
+        : input.failure.class === "capacity_limit"
+          ? "Model at capacity"
+          : "Provider error",
     startedAt: input.retryStartedAt ?? input.occurredAt,
     completedAt: input.occurredAt,
     updatedAt: input.occurredAt,

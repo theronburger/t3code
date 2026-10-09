@@ -95,6 +95,7 @@ function AutoSettleSettingsRows() {
   const writeToAll = (
     patch: Partial<AutoSettleSettings> & {
       autoResumeLimitedThreads?: boolean;
+      autoRetryCapacityErrors?: boolean;
       snoozeLimitedThreads?: boolean;
     },
   ) => {
@@ -197,6 +198,14 @@ function AutoSettleSettingsRows() {
             value={uniformMobileSetting(displayTargets, "autoResumeLimitedThreads")}
             disabled={disabled}
             onValueChange={(value) => writeToAll({ autoResumeLimitedThreads: value })}
+          />
+          <SettingsSwitchRow
+            icon="clock"
+            label="Retry capacity errors"
+            subtitle="Schedule retries after a random 5–15 minute wait. Turning this off leaves pending retries in place; cancel them from their threads."
+            value={uniformMobileSetting(displayTargets, "autoRetryCapacityErrors")}
+            disabled={disabled}
+            onValueChange={(value) => writeToAll({ autoRetryCapacityErrors: value })}
           />
           <SettingsSwitchRow
             icon="clock"

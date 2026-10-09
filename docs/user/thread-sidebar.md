@@ -214,6 +214,14 @@ the snooze. Enable **Snooze limited threads** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
+Enable **Retry capacity errors** in **Settings → General** on web and desktop,
+or **Settings → Thread behavior** on mobile, to automatically schedule retries
+when a model is temporarily at capacity. Each capacity failure gets a new random
+5–15 minute wait. The environment retries even when your clients are closed and
+keeps the scheduled time across restarts. Cancel a pending retry from the thread;
+turning the setting off stops scheduling retries for future failures. Other errors,
+including authentication failures and exhausted usage limits, do not use this setting.
+
 On web and desktop, use **Agents** to follow work delegated to subagents.
 Stop on a thread also stops the subagents it delegated to.
 

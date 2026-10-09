@@ -21,6 +21,22 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("capacity retry settings", () => {
+  it("keeps retries opt-in for existing installations", () => {
+    expect(decodeServerSettings({}).autoRetryCapacityErrors).toBe(false);
+  });
+
+  it.each([true, false])("round-trips an explicit %s preference", (autoRetryCapacityErrors) => {
+    const input = { autoRetryCapacityErrors };
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+
+  it("rejects non-boolean settings", () => {
+    expect(() => decodeServerSettingsPatch({ autoRetryCapacityErrors: "true" })).toThrow();
+  });
+});
+
 describe("ServerSettings response streaming", () => {
   it("defaults to paragraph buffering", () => {
     expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");

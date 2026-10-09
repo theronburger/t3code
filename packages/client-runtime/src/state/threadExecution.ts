@@ -2,7 +2,7 @@ import {
   latestRootProviderFailure,
   latestUnheldRun,
   threadErrorSummary,
-  usageLimitRunPresentedAsLatest,
+  providerLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import {
   isOrchestrationV2WorkActive,
@@ -72,7 +72,7 @@ function presentedUsageLimitRun(
   const providerSession = projection.providerSessions.findLast(
     (session) => session.providerInstanceId === projection.thread.providerInstanceId,
   );
-  return usageLimitRunPresentedAsLatest(
+  return providerLimitRunPresentedAsLatest(
     projection.runs,
     projection.turnItems,
     providerSession?.lastError ?? null,

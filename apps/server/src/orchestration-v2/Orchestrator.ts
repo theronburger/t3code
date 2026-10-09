@@ -7,7 +7,7 @@ import {
   latestExecutedRun,
   latestRootProviderFailure,
   runRanAfter,
-  usageLimitBlockedRun,
+  providerLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import {
@@ -1287,7 +1287,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (left, right) =>
               DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
           )[0]?.lastError ?? null;
-      if (usageLimitBlockedRun(projection.runs, projection.turnItems, sessionError) !== null) {
+      if (providerLimitBlockedRun(projection.runs, projection.turnItems, sessionError) !== null) {
         return;
       }
       const queuedRun = nextQueuedRun(projection);
@@ -2698,7 +2698,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ["runs", "runtimeRequests", "turnItems"],
         { turnItemTypes: ["error"] },
       );
-      const run = usageLimitBlockedRun(projection.runs, projection.turnItems, null);
+      const run = providerLimitBlockedRun(projection.runs, projection.turnItems, null);
       const failure = latestRootProviderFailure(run, projection.turnItems);
       const resetMs = Date.parse(command.limitRecovery.resetAt);
       if (command.limitRecovery.snooze === true && resetMs <= DateTime.toEpochMillis(now)) {
@@ -2713,7 +2713,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         thread.archivedAt !== null ||
         thread.settledOverride === "settled" ||
         run?.id !== command.limitRecovery.runId ||
-        failure?.class !== "usage_limit" ||
+        (failure?.class !== "usage_limit" && failure?.class !== "capacity_limit") ||
         failure.resetAt !== command.limitRecovery.resetAt ||
         resetMs <= DateTime.toEpochMillis(run.completedAt ?? run.requestedAt) ||
         projection.runtimeRequests.some((request) => request.status === "pending")
@@ -4472,7 +4472,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.dispatchMode.type !== "start_immediately" ||
           source === undefined ||
           (source.status !== "interrupted" &&
-            !(source.status === "failed" && limited?.class === "usage_limit")) ||
+            !(
+              source.status === "failed" &&
+              (limited?.class === "usage_limit" || limited?.class === "capacity_limit")
+            )) ||
           latestExecutedRun(projection.runs)?.id !== source.id ||
           projection.thread.archivedAt !== null ||
           projection.thread.deletedAt !== null ||
@@ -4486,14 +4489,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
       if (command.usageLimitContinuationOfRunId !== undefined) {
-        const run = usageLimitBlockedRun(projection.runs, projection.turnItems, null);
+        const run = providerLimitBlockedRun(projection.runs, projection.turnItems, null);
         const failure = latestRootProviderFailure(run, projection.turnItems);
         const recovery = projection.thread.limitRecovery;
         const now = yield* DateTime.now;
         if (
           run?.id !== command.usageLimitContinuationOfRunId ||
-          failure?.class !== "usage_limit" ||
-          threadShellFromProjection(projection).lastErrorClass !== "usage_limit" ||
+          (failure?.class !== "usage_limit" && failure?.class !== "capacity_limit") ||
+          threadShellFromProjection(projection).lastErrorClass !== failure.class ||
           !recovery?.autoResume ||
           recovery.requestId !== command.usageLimitRecoveryRequestId ||
           recovery.runId !== run.id ||
@@ -10333,7 +10336,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (left, right) =>
                 DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
             )[0]?.lastError ?? null;
-        if (usageLimitBlockedRun(projection.runs, projection.turnItems, sessionError) !== null) {
+        if (providerLimitBlockedRun(projection.runs, projection.turnItems, sessionError) !== null) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,

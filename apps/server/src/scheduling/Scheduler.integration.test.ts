@@ -21,16 +21,23 @@ import * as TestClock from "effect/testing/TestClock";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as UsageLimitRecoveryWorker from "../orchestration-v2/UsageLimitRecoveryWorker.ts";
+import * as ProviderLimitRecoveryWorker from "../orchestration-v2/ProviderLimitRecoveryWorker.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Scheduler from "./Scheduler.ts";
 
-it.effect.each(["on time", "after restart"])(
-  "runs Scheduled Tasks and a persisted limit retry through the same scheduler %s",
-  (scenario) =>
+it.effect.each(
+  ["on time", "after restart"].flatMap((scenario) =>
+    (["usage_limit", "capacity_limit"] as const).map((failureClass) => ({
+      scenario,
+      failureClass,
+    })),
+  ),
+)(
+  "runs Scheduled Tasks and a persisted $failureClass retry through the same scheduler $scenario",
+  ({ scenario, failureClass }) =>
     Effect.gen(function* () {
       const now = yield* DateTime.now;
       const resetAt = DateTime.formatIso(DateTime.add(now, { seconds: 60 }));
@@ -57,8 +64,9 @@ it.effect.each(["on time", "after restart"])(
         latestRunCompletedAt: now,
         activeRunId: null,
         status: "failed",
-        lastErrorClass: "usage_limit",
-        usageLimitResetAt: resetAt,
+        lastErrorClass: failureClass,
+        usageLimitResetAt: failureClass === "usage_limit" ? resetAt : null,
+        capacityRetryAt: failureClass === "capacity_limit" ? resetAt : null,
         pendingRuntimeRequest: null,
         latestVisibleMessage: null,
         latestUserMessageAt: now,
@@ -117,7 +125,7 @@ it.effect.each(["on time", "after restart"])(
       );
       const layerWorkers = Layer.mergeAll(
         ScheduledTasks.layer,
-        UsageLimitRecoveryWorker.layer,
+        ProviderLimitRecoveryWorker.layer,
       ).pipe(Layer.provide(layerDependencies), Layer.provide(Scheduler.layer));
       yield* Effect.gen(function* () {
         const tasks = yield* ScheduledTasks.ScheduledTaskService;

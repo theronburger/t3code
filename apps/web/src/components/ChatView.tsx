@@ -1,6 +1,6 @@
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
-import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
+import { providerLimitRecoveryBannerItem } from "./chat/ProviderLimitRecoveryBanner";
 import {
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
@@ -138,7 +138,7 @@ import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
   latestUnheldRun,
-  usageLimitRunPresentedAsLatest,
+  providerLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
@@ -2144,16 +2144,17 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread &&
     serverProjection?.runs.some((run) => run.status === "queued" && run.queueHeld === true) ===
       true;
+  const lastRunErrorClass = serverRuntime?.lastErrorClass;
   const resumableRunId = useMemo(() => {
     if (!isServerThread || serverProjection === null) return null;
     const run = latestExecutedRun(serverProjection.runs);
     if (run?.status === "interrupted") return run.id;
     return run?.status === "failed" &&
-      serverRuntime?.lastErrorClass === "usage_limit" &&
-      latestRootProviderFailure(run, serverProjection.turnItems)?.class === "usage_limit"
+      (lastRunErrorClass === "usage_limit" || lastRunErrorClass === "capacity_limit") &&
+      latestRootProviderFailure(run, serverProjection.turnItems)?.class === lastRunErrorClass
       ? run.id
       : null;
-  }, [isServerThread, serverProjection, serverRuntime?.lastErrorClass]);
+  }, [isServerThread, serverProjection, lastRunErrorClass]);
   const parentSubagentThreadId =
     activeThread?.lineage.relationshipToParent === "subagent"
       ? activeThread.lineage.parentThreadId
@@ -2261,7 +2262,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
-    serverRuntime.lastErrorClass === "usage_limit" &&
+    (serverRuntime.lastErrorClass === "usage_limit" ||
+      serverRuntime.lastErrorClass === "capacity_limit") &&
     activeThreadShell?.latestRun &&
     visibleThreadError === serverRuntime.lastError
       ? null
@@ -3645,7 +3647,7 @@ export default function ChatView(props: ChatViewProps) {
         (session) => session.providerInstanceId === serverProjection.thread.providerInstanceId,
       )?.lastError ?? null;
     const latestRun =
-      usageLimitRunPresentedAsLatest(
+      providerLimitRunPresentedAsLatest(
         serverProjection.runs,
         serverProjection.turnItems,
         sessionError,
@@ -7756,11 +7758,13 @@ export default function ChatView(props: ChatViewProps) {
   );
   const limitRecoveryBanner =
     serverRuntime?.status === "failed" &&
-    serverRuntime.lastErrorClass === "usage_limit" &&
+    (serverRuntime.lastErrorClass === "usage_limit" ||
+      serverRuntime.lastErrorClass === "capacity_limit") &&
     activeThreadShell?.latestRun
-      ? usageLimitRecoveryBannerItem({
+      ? providerLimitRecoveryBannerItem({
           runId: activeThreadShell.latestRun.runId,
-          resetAt: serverRuntime.usageLimitResetAt ?? null,
+          kind: serverRuntime.lastErrorClass,
+          resetAt: serverRuntime.usageLimitResetAt ?? serverRuntime.capacityRetryAt ?? null,
           stoppedAt: activeThreadShell.latestRun.completedAt ?? activeThreadShell.updatedAt,
           recovery: activeThreadShell.limitRecovery ?? null,
           snoozedUntil: activeThreadShell.snoozedUntil,
