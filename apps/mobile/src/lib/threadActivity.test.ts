@@ -451,7 +451,7 @@ describe("buildThreadFeed", () => {
     expect(activity?.getFullDetail()).toContain(message);
   });
 
-  it.each(["transport_error", "usage_limit"] as const)(
+  it.each(["transport_error", "usage_limit", "capacity_limit"] as const)(
     "presents %s retries and clears warning markers on recovery",
     (failureClass) => {
       const retryBase = {
@@ -490,7 +490,7 @@ describe("buildThreadFeed", () => {
           0,
         ),
       ]);
-      if (failureClass === "usage_limit") {
+      if (failureClass === "usage_limit" || failureClass === "capacity_limit") {
         const recoveredActivity = recoveredFeed.flatMap((entry) =>
           entry.type === "activity-group" ? entry.activities : [],
         )[0];

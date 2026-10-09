@@ -997,7 +997,10 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
     return "waiting";
   }
   if (thread.runtime?.status === "failed") {
-    return thread.runtime.lastErrorClass === "usage_limit" ? "limited" : "failed";
+    return thread.runtime.lastErrorClass === "usage_limit" ||
+      thread.runtime.lastErrorClass === "capacity_limit"
+      ? "limited"
+      : "failed";
   }
   return "ready";
 }

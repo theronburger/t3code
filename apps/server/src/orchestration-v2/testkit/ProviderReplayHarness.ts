@@ -314,6 +314,7 @@ export function layerWithRegistry<Error>(
         layerEventSinkProvided,
         IdAllocator.layer,
         ThreadCommandExecutor.layer,
+        layerServerSettings,
       ),
     ),
   );
@@ -374,6 +375,7 @@ export function layerWithRegistry<Error>(
         layerContextHandoffServiceProvided,
         layerEventSinkProvided,
         IdAllocator.layer,
+        layerServerSettings,
         layerStores,
         layerProviderSessionManagerProvided,
         Layer.mock(ProviderAuthService.ProviderAuthService)({

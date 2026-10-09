@@ -2,7 +2,7 @@ import {
   latestRootProviderFailure,
   latestUnheldRun,
   threadErrorSummary,
-  usageLimitRunPresentedAsLatest,
+  providerLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import {
   isOrchestrationV2WorkActive,
@@ -66,13 +66,13 @@ function summarizeThreadRun(
   };
 }
 
-function presentedUsageLimitRun(
+function presentedProviderLimitRun(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadProjection["runs"][number] | null {
   const providerSession = projection.providerSessions.findLast(
     (session) => session.providerInstanceId === projection.thread.providerInstanceId,
   );
-  return usageLimitRunPresentedAsLatest(
+  return providerLimitRunPresentedAsLatest(
     projection.runs,
     projection.turnItems,
     providerSession?.lastError ?? null,
@@ -83,7 +83,7 @@ function presentedUsageLimitRun(
 function presentedLatestRun(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadProjection["runs"][number] | null {
-  return presentedUsageLimitRun(projection) ?? latestUnheldRun(projection.runs);
+  return presentedProviderLimitRun(projection) ?? latestUnheldRun(projection.runs);
 }
 
 export function deriveLatestThreadRun(
@@ -228,7 +228,7 @@ export function deriveThreadRuntime(
   const providerSession = projection.providerSessions.findLast(
     (session) => session.providerInstanceId === projection.thread.providerInstanceId,
   );
-  const usageLimitedRun = presentedUsageLimitRun(projection);
+  const providerLimitedRun = presentedProviderLimitRun(projection);
   const latestRunProjection = presentedLatestRun(projection);
   const activityRun = deriveThreadActivityRun(projection);
   const liveActivityRun = latestMatchingRun(projection, (run) =>
@@ -257,7 +257,7 @@ export function deriveThreadRuntime(
   const activeRunId =
     latestMatchingRun(projection, (run) => INTERRUPTIBLE_RUN_STATUSES.has(run.status))?.id ?? null;
   return {
-    status: usageLimitedRun
+    status: providerLimitedRun
       ? "failed"
       : backgroundWorkHoldsRun && latestRunProjection?.status !== "failed"
         ? "idle"

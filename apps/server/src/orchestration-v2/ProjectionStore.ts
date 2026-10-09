@@ -10,7 +10,7 @@ import {
   latestRootProviderFailure,
   latestUnheldRun,
   threadErrorSummary,
-  usageLimitRunPresentedAsLatest,
+  providerLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
@@ -158,6 +158,7 @@ export type ProjectionLimitRecoveryCandidate = Pick<
   | "lastErrorClass"
   | "latestRunId"
   | "usageLimitResetAt"
+  | "capacityRetryAt"
   | "archivedAt"
   | "settledOverride"
   | "pendingRuntimeRequest"
@@ -391,6 +392,7 @@ export interface ProjectionStoreV2Shape {
   readonly getLimitRecoveryCandidates: (options: {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
+    readonly autoRetryCapacityErrors?: boolean;
     readonly snooze: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
   /** Every candidate, or only `threadId` when a sweep checks one thread. */
@@ -1380,7 +1382,7 @@ export function threadShellFromProjection(
           DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
       )[0] ?? null;
   const latestRun =
-    usageLimitRunPresentedAsLatest(
+    providerLimitRunPresentedAsLatest(
       projection.runs,
       projection.turnItems,
       providerSession?.lastError ?? null,
@@ -1579,6 +1581,7 @@ type ShellThreadState = {
   readonly lastError: string | null;
   readonly lastErrorClass: OrchestrationV2ThreadShell["lastErrorClass"];
   readonly usageLimitResetAt: OrchestrationV2ThreadShell["usageLimitResetAt"];
+  readonly capacityRetryAt: OrchestrationV2ThreadShell["capacityRetryAt"];
   readonly pendingRuntimeRequest: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
@@ -1737,6 +1740,7 @@ function shellFromState(input: {
     lastError: input.state.lastError,
     lastErrorClass: input.state.lastErrorClass,
     usageLimitResetAt: input.state.usageLimitResetAt,
+    capacityRetryAt: input.state.capacityRetryAt,
     pendingRuntimeRequest:
       input.state.pendingRuntimeRequest === null
         ? null
@@ -3484,7 +3488,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           WHERE t.deleted_at IS NULL
             AND json_extract(t.payload_json, '$.archivedAt') IS NULL
             AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'
-            AND json_extract(item.payload_json, '$.failure.class') = 'usage_limit'
+            AND json_extract(item.payload_json, '$.failure.class') IN ('usage_limit', 'capacity_limit')
             AND json_extract(item.payload_json, '$.failure.resetAt') IS NOT NULL
             AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(COALESCE(r.completed_at, json_extract(t.payload_json, '$.updatedAt')))
             AND (
@@ -3504,8 +3508,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   OR json_extract(t.payload_json, '$.limitRecovery.resetAt') IS NOT json_extract(item.payload_json, '$.failure.resetAt')
                 )
                 AND (
-                  ${booleanInt(options.autoResume)}
-                  OR (${booleanInt(options.snooze)} AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(${DateTime.formatIso(options.now)}))
+                  (json_extract(item.payload_json, '$.failure.class') = 'usage_limit' AND (
+                    ${booleanInt(options.autoResume)}
+                    OR (${booleanInt(options.snooze)} AND julianday(json_extract(item.payload_json, '$.failure.resetAt')) > julianday(${DateTime.formatIso(options.now)}))
+                  ))
+                  OR (json_extract(item.payload_json, '$.failure.class') = 'capacity_limit' AND ${booleanInt(options.autoRetryCapacityErrors ?? false)})
                 )
               )
             )
@@ -3523,12 +3530,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             item.type === "error" ? item.failure : null,
             row.last_error,
           );
-          if (summary.lastErrorClass !== "usage_limit") continue;
+          if (
+            summary.lastErrorClass !== "usage_limit" &&
+            summary.lastErrorClass !== "capacity_limit"
+          )
+            continue;
           candidates.push({
             id: thread.id,
             status: "failed",
             lastErrorClass: summary.lastErrorClass,
             usageLimitResetAt: summary.usageLimitResetAt,
+            capacityRetryAt: summary.capacityRetryAt,
             latestRunId: RunId.make(row.run_id),
             latestRunCompletedAt:
               row.completed_at === null ? null : DateTime.makeUnsafe(row.completed_at),
@@ -5615,11 +5627,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           const blockingFailure = yield* decodeTurnItemPayload(
             row.blocking_failure_payload_json,
           ).pipe(Effect.orElseSucceed(() => null));
+          const blockingErrorClass = threadErrorSummary(
+            blockingFailure?.type === "error" ? blockingFailure.failure : null,
+            row.last_error,
+          ).lastErrorClass;
           const blocksQueue =
-            threadErrorSummary(
-              blockingFailure?.type === "error" ? blockingFailure.failure : null,
-              row.last_error,
-            ).lastErrorClass === "usage_limit";
+            blockingErrorClass === "usage_limit" || blockingErrorClass === "capacity_limit";
           if (blocksQueue && blockingFailure !== null) {
             terminalFailureItem = blockingFailure;
             latestRunId = RunId.make(row.blocking_run_id);
@@ -6085,12 +6098,14 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               .filter(
                 (thread) =>
                   thread.status === "failed" &&
-                  thread.lastErrorClass === "usage_limit" &&
-                  thread.usageLimitResetAt !== null &&
+                  (thread.lastErrorClass === "usage_limit" ||
+                    thread.lastErrorClass === "capacity_limit") &&
+                  (thread.usageLimitResetAt ?? thread.capacityRetryAt) != null &&
                   thread.pendingRuntimeRequest === null,
               )
               .filter((thread) => {
-                const resetMs = Date.parse(thread.usageLimitResetAt!);
+                const resetAt = thread.usageLimitResetAt ?? thread.capacityRetryAt!;
+                const resetMs = Date.parse(resetAt);
                 const nowMs = DateTime.toEpochMillis(options.now);
                 if (
                   !Number.isFinite(resetMs) ||
@@ -6099,9 +6114,11 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                   return false;
                 if (
                   thread.limitRecovery?.runId !== thread.latestRunId ||
-                  thread.limitRecovery.resetAt !== thread.usageLimitResetAt
+                  thread.limitRecovery.resetAt !== resetAt
                 ) {
-                  return options.autoResume || (options.snooze && resetMs > nowMs);
+                  return thread.lastErrorClass === "capacity_limit"
+                    ? options.autoRetryCapacityErrors === true
+                    : options.autoResume || (options.snooze && resetMs > nowMs);
                 }
                 return (
                   thread.limitRecovery.autoResume &&

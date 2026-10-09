@@ -21,6 +21,48 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("capacity retry settings", () => {
+  it("keeps retries opt-in for existing installations", () => {
+    expect(decodeServerSettings({}).autoRetryCapacityErrors).toBe(false);
+    expect(decodeServerSettings({}).capacityRetryDelay).toEqual({ minMinutes: 5, maxMinutes: 15 });
+  });
+
+  it.each([true, false])("round-trips an explicit %s preference", (autoRetryCapacityErrors) => {
+    const input = { autoRetryCapacityErrors };
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+
+  it("rejects non-boolean settings", () => {
+    expect(() => decodeServerSettingsPatch({ autoRetryCapacityErrors: "true" })).toThrow();
+  });
+
+  it.each([
+    { minMinutes: 2, maxMinutes: 4 },
+    { minMinutes: 7, maxMinutes: 7 },
+    { minMinutes: 1, maxMinutes: 1440 },
+  ])("round-trips a complete retry range %j", (capacityRetryDelay) => {
+    const input = { capacityRetryDelay };
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+
+  it.each([
+    { minMinutes: 0, maxMinutes: 15 },
+    { minMinutes: 5, maxMinutes: 1441 },
+    { minMinutes: 16, maxMinutes: 15 },
+    { minMinutes: 2.5, maxMinutes: 15 },
+    { minMinutes: 5, maxMinutes: "15" },
+    { minMinutes: 5 },
+    { maxMinutes: 15 },
+    null,
+  ])("rejects invalid or incomplete retry range %j", (capacityRetryDelay) => {
+    for (const decode of [decodeServerSettings, decodeServerSettingsPatch]) {
+      expect(() => decode({ capacityRetryDelay })).toThrow();
+    }
+  });
+});
+
 describe("ServerSettings response streaming", () => {
   it("defaults to paragraph buffering", () => {
     expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");

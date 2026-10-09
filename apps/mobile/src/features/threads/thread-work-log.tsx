@@ -856,7 +856,8 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   );
   const failureItem = row.projectedItem.item;
   if (failureItem.type === "error" && failureItem.status === "failed") {
-    const warning = failureItem.failure.class === "usage_limit";
+    const warning =
+      failureItem.failure.class === "usage_limit" || failureItem.failure.class === "capacity_limit";
     const timestamp = new Date(row.createdAt);
     const resetAt = failureItem.failure.resetAt;
     const resetTime = resetAt
@@ -867,8 +868,10 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
           minute: "2-digit",
         })
       : null;
+    const limitLabel =
+      failureItem.failure.class === "capacity_limit" ? "Model at capacity" : "Usage limit reached";
     const label = warning
-      ? `Usage limit reached.${resetTime ? ` Retry after ${resetTime}.` : ""}`
+      ? `${limitLabel}.${resetTime ? ` Retry after ${resetTime}.` : ""}`
       : row.summary;
     return (
       <WorkLogPressable
@@ -983,12 +986,13 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
   const displayText = workEntryRowLabel(row.workEntry, expanded);
   const isSystemNotice = row.projectedItem.item.type === "system_notice";
-  const isUsageLimit =
+  const isProviderLimit =
     row.projectedItem.item.type === "error" &&
-    row.projectedItem.item.failure.class === "usage_limit" &&
+    (row.projectedItem.item.failure.class === "usage_limit" ||
+      row.projectedItem.item.failure.class === "capacity_limit") &&
     row.projectedItem.item.status !== "completed";
   const iconIsDestructive =
-    !isSystemNotice && !isUsageLimit && (row.icon === "alert" || row.icon === "warning");
+    !isSystemNotice && !isProviderLimit && (row.icon === "alert" || row.icon === "warning");
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
   const icon = reasoning ? "brain" : (toolPresentation?.icon ?? workRowSymbolName(row.icon));
@@ -1057,7 +1061,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                   icon={icon}
                   color={props.iconSubtleColor}
                   colorClassName={
-                    isUsageLimit
+                    isProviderLimit
                       ? "accent-warning-foreground"
                       : iconIsDestructive
                         ? "accent-adaptive-rose-600-400"
@@ -1069,7 +1073,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
               )}
             </WorkLogIconSlot>
             <WorkLogLabel
-              tone={isUsageLimit ? "warning" : iconIsDestructive ? "danger" : "default"}
+              tone={isProviderLimit ? "warning" : iconIsDestructive ? "danger" : "default"}
             >
               {isSystemNotice ? row.summary : displayText}
               {answerPreview ? (

@@ -26,6 +26,7 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type ChatWidth,
+  CapacityRetryDelay,
   type DiffLayout,
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
@@ -36,7 +37,9 @@ import {
   MAX_PROMPT_FONT_SIZE,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_TERMINAL_FONT_SIZE,
+  MAX_CAPACITY_RETRY_DELAY_MINUTES,
   MIN_CODE_FONT_SIZE,
+  MIN_CAPACITY_RETRY_DELAY_MINUTES,
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
   MIN_INTERFACE_FONT_SIZE,
@@ -193,6 +196,7 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
   manual: "Manual",
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
+const isCapacityRetryDelay = Schema.is(CapacityRetryDelay);
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -587,6 +591,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
         ? ["Auto-resume limited threads"]
         : []),
+      ...(settings.autoRetryCapacityErrors !== DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors
+        ? ["Retry capacity errors"]
+        : []),
+      ...(!Equal.equals(settings.capacityRetryDelay, DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay)
+        ? ["Capacity retry delay"]
+        : []),
       ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
         ? ["Snooze limited threads"]
         : []),
@@ -709,6 +719,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.autoResumeLimitedThreads,
+      settings.autoRetryCapacityErrors,
+      settings.capacityRetryDelay,
       settings.snoozeLimitedThreads,
       settings.sidebarProjectGroupingMode,
       settings.sidebarProjectSortOrder,
@@ -816,6 +828,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
+      autoRetryCapacityErrors: DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors,
+      capacityRetryDelay: DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -2080,6 +2094,119 @@ function AutoSettleDaysInput({
   );
 }
 
+function CapacityRetryDelaySettings() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const { scope } = useSettingsScope();
+  const canWrite = useScopedSettingsWriteAllowed();
+  const mixed = useScopedSettingsMixed(["capacityRetryDelay"]);
+  const disabled = !canWrite || scope.kind === "project" || scope.kind === "checkout";
+  return (
+    <SettingsRow
+      serverScoped
+      title="Retry delay"
+      description="Choose a random wait within this range for each new capacity error. Scheduled retries keep their current times."
+      settingKeys={["capacityRetryDelay"]}
+      resetAction={
+        !Equal.equals(settings.capacityRetryDelay, DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay) ? (
+          <SettingResetButton
+            label="capacity retry delay"
+            disabled={disabled}
+            onClick={() =>
+              updateSettings({ capacityRetryDelay: DEFAULT_UNIFIED_SETTINGS.capacityRetryDelay })
+            }
+          />
+        ) : null
+      }
+    >
+      <CapacityRetryDelayFields
+        key={`${scope.kind}:${scope.environmentIds.join(",")}:${settings.capacityRetryDelay.minMinutes}:${settings.capacityRetryDelay.maxMinutes}:${mixed}`}
+        value={settings.capacityRetryDelay}
+        mixed={mixed}
+        disabled={disabled}
+        onApply={(capacityRetryDelay) => updateSettings({ capacityRetryDelay })}
+      />
+    </SettingsRow>
+  );
+}
+
+function CapacityRetryDelayFields({
+  value,
+  mixed,
+  disabled,
+  onApply,
+}: {
+  value: CapacityRetryDelay;
+  mixed: boolean;
+  disabled: boolean;
+  onApply: (delay: CapacityRetryDelay) => void;
+}) {
+  const [minimum, setMinimum] = useState(mixed ? "" : String(value.minMinutes));
+  const [maximum, setMaximum] = useState(mixed ? "" : String(value.maxMinutes));
+  const delay = { minMinutes: Number(minimum), maxMinutes: Number(maximum) };
+  const valid = isCapacityRetryDelay(delay);
+  const changed = mixed || !Equal.equals(delay, value);
+  const editing = minimum !== "" || maximum !== "";
+  return (
+    <form
+      className="space-y-2 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!disabled && valid && changed) onApply(delay);
+      }}
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="w-32 space-y-1 text-xs text-muted-foreground">
+          <span className="block">Minimum (minutes)</span>
+          <Input
+            size="sm"
+            type="number"
+            min={MIN_CAPACITY_RETRY_DELAY_MINUTES}
+            max={MAX_CAPACITY_RETRY_DELAY_MINUTES}
+            step={1}
+            value={minimum}
+            placeholder={mixed ? "Mixed" : undefined}
+            disabled={disabled}
+            aria-label="Minimum capacity retry delay in minutes"
+            aria-invalid={editing && !valid}
+            aria-describedby="capacity-retry-delay-help"
+            onChange={(event) => setMinimum(event.target.value)}
+          />
+        </label>
+        <label className="w-32 space-y-1 text-xs text-muted-foreground">
+          <span className="block">Maximum (minutes)</span>
+          <Input
+            size="sm"
+            type="number"
+            min={MIN_CAPACITY_RETRY_DELAY_MINUTES}
+            max={MAX_CAPACITY_RETRY_DELAY_MINUTES}
+            step={1}
+            value={maximum}
+            placeholder={mixed ? "Mixed" : undefined}
+            disabled={disabled}
+            aria-label="Maximum capacity retry delay in minutes"
+            aria-invalid={editing && !valid}
+            aria-describedby="capacity-retry-delay-help"
+            onChange={(event) => setMaximum(event.target.value)}
+          />
+        </label>
+        <Button size="sm" type="submit" disabled={disabled || !valid || !changed}>
+          Apply
+        </Button>
+      </div>
+      <p
+        id="capacity-retry-delay-help"
+        className="text-xs text-muted-foreground"
+        aria-live="polite"
+      >
+        {editing && !valid
+          ? `Enter whole minutes from ${MIN_CAPACITY_RETRY_DELAY_MINUTES} to ${MAX_CAPACITY_RETRY_DELAY_MINUTES}, with minimum no greater than maximum.`
+          : "Set both values to the same number for a fixed delay."}
+      </p>
+    </form>
+  );
+}
+
 // The legacy rows sit behind the fold, so a settings-search jump has to
 // expand the section before its target can mount and scroll.
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
@@ -2192,6 +2319,7 @@ export function GeneralSettingsPanel() {
   const hasServerTargets = connectedEnvironments.length > 0;
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
+  const mixedCapacityRetries = useScopedSettingsMixed(["autoRetryCapacityErrors"]);
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
@@ -2355,6 +2483,25 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("retry-capacity-errors")}
+          description="Automatically retry temporary model capacity errors. Turning this off leaves scheduled retries in place; cancel them from their threads."
+          settingKeys={["autoRetryCapacityErrors"]}
+          control={
+            <ScopedSwitch
+              settingKeys={["autoRetryCapacityErrors"]}
+              checked={settings.autoRetryCapacityErrors}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoRetryCapacityErrors: Boolean(checked) })
+              }
+              aria-label="Retry capacity errors"
+            />
+          }
+        />
+        {settings.autoRetryCapacityErrors && !mixedCapacityRetries ? (
+          <CapacityRetryDelaySettings />
+        ) : null}
         <SettingsRow
           serverScoped
           {...searchableSetting("snooze-limited-threads")}

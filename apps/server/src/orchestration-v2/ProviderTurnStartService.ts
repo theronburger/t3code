@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
@@ -47,6 +48,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
+import { capacityRetryTime } from "./capacityRetry.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
@@ -102,6 +104,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | ServerSettings.ServerSettingsService
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -116,6 +119,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
 
     // These callbacks outlive startup while a run drains background work. Build
     // them outside start's scope so they cannot retain its full thread history.
@@ -560,25 +564,31 @@ export const layer: Layer.Layer<
       }) =>
         Effect.gen(function* () {
           const nestedCause = "cause" in failed.error ? failed.error.cause : undefined;
+          const now = yield* DateTime.now;
+          let failure = makeProviderFailure({
+            cause: failed.error,
+            message:
+              nestedCause instanceof Error
+                ? nestedCause.message
+                : typeof nestedCause === "string"
+                  ? nestedCause
+                  : failed.error.message,
+            class: "provider_error",
+          });
+          if (failure.class === "capacity_limit") {
+            const { capacityRetryDelay } = yield* serverSettings.getSettings;
+            failure = { ...failure, resetAt: yield* capacityRetryTime(capacityRetryDelay, now) };
+          }
           yield* settleRunBeforeStart({
             signal: failed.signal,
             status: "failed",
-            now: yield* DateTime.now,
+            now,
             providerInstanceId: run.providerInstanceId,
             itemProviderThreadId: providerThread.id,
             item: {
               type: "error",
               title: failed.title,
-              failure: makeProviderFailure({
-                cause: failed.error,
-                message:
-                  nestedCause instanceof Error
-                    ? nestedCause.message
-                    : typeof nestedCause === "string"
-                      ? nestedCause
-                      : failed.error.message,
-                class: "provider_error",
-              }),
+              failure,
             },
           });
         });

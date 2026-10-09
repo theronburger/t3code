@@ -1,6 +1,7 @@
 import { AuthSettingsWriteScope } from "@t3tools/contracts";
 import { readEnvironmentScope, useEnvironmentsWithScope } from "../../state/session";
 import { AutoSettleDaysField } from "./components/AutoSettleDaysField";
+import { CapacityRetryDelayFields } from "./components/CapacityRetryDelayFields";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
@@ -8,7 +9,7 @@ import { useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type CapacityRetryDelay } from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/AppText";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
@@ -95,6 +96,8 @@ function AutoSettleSettingsRows() {
   const writeToAll = (
     patch: Partial<AutoSettleSettings> & {
       autoResumeLimitedThreads?: boolean;
+      autoRetryCapacityErrors?: boolean;
+      capacityRetryDelay?: CapacityRetryDelay;
       snoozeLimitedThreads?: boolean;
     },
   ) => {
@@ -176,6 +179,7 @@ function AutoSettleSettingsRows() {
   };
 
   const afterDays = referenceSettings.sidebarAutoSettleAfterDays;
+  const capacityRetryDelay = uniformMobileSetting(displayTargets, "capacityRetryDelay");
 
   return (
     <View className="gap-6">
@@ -198,6 +202,22 @@ function AutoSettleSettingsRows() {
             disabled={disabled}
             onValueChange={(value) => writeToAll({ autoResumeLimitedThreads: value })}
           />
+          <SettingsSwitchRow
+            icon="clock"
+            label="Retry capacity errors"
+            subtitle="Automatically retry temporary model capacity errors. Turning this off leaves pending retries in place; cancel them from their threads."
+            value={uniformMobileSetting(displayTargets, "autoRetryCapacityErrors")}
+            disabled={disabled}
+            onValueChange={(value) => writeToAll({ autoRetryCapacityErrors: value })}
+          />
+          {uniformMobileSetting(displayTargets, "autoRetryCapacityErrors") === true ? (
+            <CapacityRetryDelayFields
+              key={`${displayTargets.map((target) => target.environment.environmentId).join(",")}:${capacityRetryDelay?.minMinutes}:${capacityRetryDelay?.maxMinutes}`}
+              value={capacityRetryDelay}
+              disabled={disabled}
+              onApply={(delay) => writeToAll({ capacityRetryDelay: delay })}
+            />
+          ) : null}
           <SettingsSwitchRow
             icon="clock"
             label="Snooze limited threads"

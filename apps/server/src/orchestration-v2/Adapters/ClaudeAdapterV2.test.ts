@@ -3567,6 +3567,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         });
         assert.isDefined(terminal.retryStartedAt);
         assert.equal(terminal.failure.code, "api_error_529");
+        assert.equal(terminal.failure.class, "capacity_limit");
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
   );
@@ -3616,7 +3617,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.isNotEmpty(terminal.failure.message);
         assert.equal(
           terminal.failure.class,
-          terminalReason === "blocking_limit" ? "usage_limit" : "provider_error",
+          terminalReason === "blocking_limit"
+            ? "usage_limit"
+            : terminalReason === "overloaded_status"
+              ? "capacity_limit"
+              : "provider_error",
         );
         assert.isFalse(
           harness.events.some(

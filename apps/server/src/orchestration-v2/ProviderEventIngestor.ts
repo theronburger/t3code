@@ -28,11 +28,13 @@ import * as Schema from "effect/Schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
 import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failure";
+import { capacityRetryTime } from "./capacityRetry.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 
@@ -308,6 +310,7 @@ export const layer: Layer.Layer<
   | IdAllocator.IdAllocatorV2
   | ProjectionStore.ProjectionStoreV2
   | ThreadCommandExecutor.ThreadCommandExecutor
+  | ServerSettings.ServerSettingsService
 > = Layer.effect(
   ProviderEventIngestorV2,
   Effect.gen(function* () {
@@ -315,6 +318,7 @@ export const layer: Layer.Layer<
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+    const settings = yield* ServerSettings.ServerSettingsService;
     const analytics = yield* ProviderTurnAnalytics;
     const completedTurnAnalytics = new Set<string>();
 
@@ -652,27 +656,46 @@ export const layer: Layer.Layer<
               return dismissed;
             }
             const occurredAt = yield* DateTime.now;
+            let item = makeProviderFailureTurnItem({
+              idAllocator,
+              driver: input.event.driver,
+              threadId: input.threadId,
+              runId: input.runId ?? null,
+              nodeId: input.nodeId ?? null,
+              providerThreadId: input.event.providerThreadId,
+              providerTurnId: input.event.providerTurnId,
+              itemOrdinal: input.event.failureItemOrdinal,
+              failure: input.event.failure,
+              ...(input.event.retry === undefined ? {} : { retry: input.event.retry }),
+              ...(input.event.retryStartedAt === undefined
+                ? {}
+                : { retryStartedAt: input.event.retryStartedAt }),
+              occurredAt,
+            });
+            if (item.failure.class === "capacity_limit") {
+              const persisted = yield* projections.getTurnItem({
+                threadId: input.threadId,
+                itemId: item.id,
+              });
+              let retryAt =
+                persisted?.type === "error" && persisted.failure.class === "capacity_limit"
+                  ? persisted.failure.resetAt
+                  : null;
+              if (retryAt == null) {
+                const { capacityRetryDelay } = yield* settings.getSettings;
+                retryAt = yield* capacityRetryTime(capacityRetryDelay, occurredAt);
+              }
+              item = {
+                ...item,
+                failure: {
+                  ...item.failure,
+                  resetAt: retryAt,
+                },
+              };
+            }
             return [
               ...dismissed,
-              yield* makeDomainEvent(input, {
-                type: "turn-item.updated",
-                payload: makeProviderFailureTurnItem({
-                  idAllocator,
-                  driver: input.event.driver,
-                  threadId: input.threadId,
-                  runId: input.runId ?? null,
-                  nodeId: input.nodeId ?? null,
-                  providerThreadId: input.event.providerThreadId,
-                  providerTurnId: input.event.providerTurnId,
-                  itemOrdinal: input.event.failureItemOrdinal,
-                  failure: input.event.failure,
-                  ...(input.event.retry === undefined ? {} : { retry: input.event.retry }),
-                  ...(input.event.retryStartedAt === undefined
-                    ? {}
-                    : { retryStartedAt: input.event.retryStartedAt }),
-                  occurredAt,
-                }),
-              }),
+              yield* makeDomainEvent(input, { type: "turn-item.updated", payload: item }),
             ];
         }
       }).pipe(

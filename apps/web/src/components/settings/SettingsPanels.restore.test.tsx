@@ -64,6 +64,7 @@ describe("restoring V2 settings", () => {
   it.each([
     ["persistComposerContextStrip", "Composer context"],
     ["autoResumeLimitedThreads", "Auto-resume limited threads"],
+    ["autoRetryCapacityErrors", "Retry capacity errors"],
     ["snoozeLimitedThreads", "Snooze limited threads"],
   ] as const)("restores %s when it is the only changed setting", async (key, label) => {
     state.settings = { ...DEFAULT_UNIFIED_SETTINGS, [key]: true };
@@ -87,5 +88,21 @@ describe("restoring V2 settings", () => {
 
     expect(state.confirm).toHaveBeenCalledOnce();
     expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("restores a custom capacity retry range even when retries are disabled", async () => {
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      capacityRetryDelay: { minMinutes: 20, maxMinutes: 30 },
+    };
+    hooks.beginRender();
+    const restore = useSettingsRestore();
+
+    expect(restore.changedSettingLabels).toEqual(["Capacity retry delay"]);
+    await restore.restoreDefaults();
+    expect(state.update.mock.calls[0]?.[0].capacityRetryDelay).toEqual({
+      minMinutes: 5,
+      maxMinutes: 15,
+    });
   });
 });

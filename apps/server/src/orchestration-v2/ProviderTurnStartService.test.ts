@@ -2,6 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  type CapacityRetryDelay,
   MessageId,
   NodeId,
   ProviderSessionId,
@@ -26,6 +27,7 @@ import * as Schema from "effect/Schema";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -95,6 +97,7 @@ it("does not commit running state when inherited background routing cannot be re
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
+        ServerSettings.layerTest(),
         Layer.succeed(FileSystem.FileSystem, { exists: () => Effect.succeed(false) } as never),
         Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
         Layer.mock(ProjectService.ProjectService)({
@@ -155,6 +158,7 @@ it("does not commit running state when inherited background routing cannot be re
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly capacityRetryDelay?: CapacityRetryDelay;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -491,6 +495,11 @@ function makeLocalCommandHarness(input: {
         }),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
+        ServerSettings.layerTest(
+          input.capacityRetryDelay === undefined
+            ? {}
+            : { capacityRetryDelay: input.capacityRetryDelay },
+        ),
         FileSystem.layerNoop({}),
         Layer.mock(GitWorkflow.GitWorkflowService)({}),
         Layer.mock(ProjectService.ProjectService)({}),
@@ -585,6 +594,40 @@ effectIt.effect("terminalizes a starting run when its provider session cannot op
       },
     ]);
   }),
+);
+
+effectIt.effect.each([
+  { stage: "session", capacityRetryDelay: { minMinutes: 2, maxMinutes: 4 } },
+  { stage: "thread", capacityRetryDelay: { minMinutes: 7, maxMinutes: 7 } },
+])(
+  "persists a capacity retry deadline when $stage startup fails",
+  ({ stage, capacityRetryDelay }) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        capacityRetryDelay,
+        ...(stage === "session"
+          ? { openFailure: new Error("The model is at capacity. Please try again later.") }
+          : {
+              ensureThreadFailure: new Error("The model is at capacity. Please try again later."),
+            }),
+      });
+
+      yield* harness.start;
+
+      const projection = harness.projection();
+      expect(projection.runs.at(-1)).toMatchObject({ status: "failed", startedAt: null });
+      const item = projection.turnItems[0];
+      expect(item).toMatchObject({ type: "error", failure: { class: "capacity_limit" } });
+      const retryAt = item?.type === "error" ? item.failure.resetAt : undefined;
+      expect(retryAt).toBeDefined();
+      const delay = Date.parse(retryAt ?? "") - DateTime.toEpochMillis(item!.completedAt!);
+      expect(delay).toBeGreaterThanOrEqual(capacityRetryDelay.minMinutes * 60_000);
+      expect(delay).toBeLessThanOrEqual(capacityRetryDelay.maxMinutes * 60_000);
+      const eventCount = harness.events.length;
+      yield* harness.start;
+      expect(harness.events).toHaveLength(eventCount);
+    }),
 );
 
 effectIt.effect("leaves the run starting when a session-open failure will be retried", () =>

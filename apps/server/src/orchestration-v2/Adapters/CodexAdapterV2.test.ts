@@ -6022,6 +6022,24 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     },
     { name: "rate", code: "rateLimitExceeded", notification: false, expectedClass: "usage_limit" },
     {
+      name: "capacity",
+      code: "internalServerError",
+      notification: false,
+      expectedClass: "capacity_limit",
+    },
+    {
+      name: "capacity-notification",
+      code: "internalServerError",
+      notification: true,
+      expectedClass: "capacity_limit",
+    },
+    {
+      name: "capacity-code",
+      code: "serverOverloaded",
+      notification: false,
+      expectedClass: "capacity_limit",
+    },
+    {
       name: "ordinary",
       code: "contextWindowExceeded",
       notification: false,
@@ -6069,7 +6087,14 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.gen(function* () {
         const nativeThreadId = `native-limit-${scenario.name}`;
         const nativeTurnId = `turn-limit-${scenario.name}`;
-        const message = "Provider stopped this request.";
+        const message =
+          scenario.name === "capacity-code"
+            ? "Please try again later."
+            : scenario.name.startsWith("capacity")
+              ? "The model is at capacity. Please try again later."
+              : scenario.name === "ordinary"
+                ? "The context window is at capacity. Shorten the conversation."
+                : "Provider stopped this request.";
         const resetAt = "2033-05-19T07:20:00.000Z";
         const snapshot = {
           type: "emit_inbound" as const,

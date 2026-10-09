@@ -309,6 +309,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["usage quota rate limit reset recover continue"],
   },
   {
+    id: "retry-capacity-errors",
+    title: "Retry capacity errors",
+    to: "/settings/general",
+    searchTerms: [
+      "model capacity overloaded automatic retry random wait delay range minimum maximum minutes",
+    ],
+  },
+  {
     id: "working-shelf",
     title: "Working section (beta)",
     to: "/settings/general",

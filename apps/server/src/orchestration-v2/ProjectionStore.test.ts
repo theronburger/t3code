@@ -2419,6 +2419,119 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("selects capacity recovery only when enabled and preserves cancellation in SQL", () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = yield* addRolledBackRecoveryCandidate("capacity-recovery");
+      const projection = yield* store.getThreadProjection(threadId);
+      const run = projection.runs[0]!;
+      const now = yield* DateTime.now;
+      const resetAt = DateTime.formatIso(DateTime.add(now, { minutes: 10 }));
+      yield* store.apply({
+        id: EventId.make("capacity-recovery:failed-run"),
+        type: "run.updated",
+        threadId,
+        occurredAt: now,
+        payload: { ...run, status: "failed", completedAt: now },
+      });
+      yield* store.apply({
+        id: EventId.make("capacity-recovery:failure"),
+        type: "turn-item.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make("capacity-recovery:error"),
+          type: "error",
+          threadId,
+          runId: run.id,
+          nodeId: run.rootNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "failed",
+          title: "Model at capacity",
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+          failure: {
+            class: "capacity_limit",
+            code: "overloaded_error",
+            message: "Model is at capacity.",
+            retryable: true,
+            resetAt,
+          },
+        },
+      });
+      const options = { now, autoResume: true, snooze: true, autoRetryCapacityErrors: false };
+      assert.isUndefined(
+        (yield* store.getLimitRecoveryCandidates(options)).find((thread) => thread.id === threadId),
+      );
+      const candidate = (yield* store.getLimitRecoveryCandidates({
+        ...options,
+        autoRetryCapacityErrors: true,
+      })).find((thread) => thread.id === threadId);
+      assert.equal(candidate?.capacityRetryAt, resetAt);
+      assert.isNull(candidate?.usageLimitResetAt);
+      for (const shell of [
+        ProjectionStore.threadShellFromProjection(yield* store.getThreadProjection(threadId)),
+        (yield* store.getShellSnapshot()).threads.find((thread) => thread.id === threadId)!,
+      ]) {
+        assert.equal(shell.capacityRetryAt, resetAt);
+        assert.isNull(shell.usageLimitResetAt);
+      }
+      yield* store.apply({
+        id: EventId.make("capacity-recovery:armed"),
+        type: "thread.metadata-updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          ...projection.thread,
+          limitRecovery: {
+            runId: run.id,
+            resetAt,
+            autoResume: true,
+            requestId: CommandId.make("capacity-recovery:arm"),
+          },
+        },
+      });
+      assert.isUndefined(
+        (yield* store.getLimitRecoveryCandidates({
+          ...options,
+          autoRetryCapacityErrors: true,
+        })).find((thread) => thread.id === threadId),
+      );
+      const dueOptions = { ...options, now: DateTime.makeUnsafe(resetAt) };
+      assert.isDefined(
+        (yield* store.getLimitRecoveryCandidates(dueOptions)).find(
+          (thread) => thread.id === threadId,
+        ),
+      );
+      yield* store.apply({
+        id: EventId.make("capacity-recovery:cancelled"),
+        type: "thread.metadata-updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          ...projection.thread,
+          limitRecovery: {
+            runId: run.id,
+            resetAt,
+            autoResume: false,
+            requestId: CommandId.make("capacity-recovery:cancel"),
+          },
+        },
+      });
+      assert.isUndefined(
+        (yield* store.getLimitRecoveryCandidates({
+          ...dueOptions,
+          autoRetryCapacityErrors: true,
+        })).find((thread) => thread.id === threadId),
+      );
+    }),
+  );
+
   it.effect("projects only the latest failed root turn's limit into SQL and memory shells", () =>
     Effect.gen(function* () {
       const store = yield* ProjectionStore.ProjectionStoreV2;
@@ -2487,6 +2600,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             status: sqlShell.status,
             lastErrorClass: sqlShell.lastErrorClass,
             usageLimitResetAt: sqlShell.usageLimitResetAt,
+            capacityRetryAt: sqlShell.capacityRetryAt,
             latestRunId: sqlShell.latestRunId,
             latestRunCompletedAt: sqlShell.latestRunCompletedAt,
             updatedAt: sqlShell.updatedAt,

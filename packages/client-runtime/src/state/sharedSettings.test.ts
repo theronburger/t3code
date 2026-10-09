@@ -44,6 +44,20 @@ describe("supportsSharedSettingsSync", () => {
 });
 
 describe("splitSharedServerPatch", () => {
+  it("shares the capacity retry preference and range without sharing machine configuration", () => {
+    const sharedPatch = {
+      autoRetryCapacityErrors: true,
+      capacityRetryDelay: { minMinutes: 2, maxMinutes: 4 },
+    };
+    expect(splitSharedServerPatch({ ...sharedPatch, enableAgentBrowserAccess: false })).toEqual({
+      sharedPatch,
+      localPatch: { enableAgentBrowserAccess: false },
+    });
+    expect(pickSharedServerSettings({ ...DEFAULT_SERVER_SETTINGS, ...sharedPatch })).toMatchObject(
+      sharedPatch,
+    );
+  });
+
   it("keeps project overrides local: project ids belong to one environment", () => {
     const patch = {
       projectSettingsOverrides: { [ProjectId.make("project")]: { defaultAutoPull: true } },
@@ -124,6 +138,8 @@ describe("pickSharedServerSettings", () => {
       Object.keys(pickSharedServerSettings(DEFAULT_SERVER_SETTINGS, restartCapabilities)).sort(),
     ).toEqual([
       "autoResumeLimitedThreads",
+      "autoRetryCapacityErrors",
+      "capacityRetryDelay",
       "continueThreadsAfterServerUpdate",
       "newWorktreesStartFromOrigin",
       "sidebarAutoSettleAfterDays",

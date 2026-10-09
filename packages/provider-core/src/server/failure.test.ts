@@ -21,6 +21,52 @@ import {
 import * as IdAllocator from "./IdAllocator.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
+it.each([
+  { message: "The model is at capacity. Please try again later.", code: "internalServerError" },
+  { message: "Claude is temporarily overloaded.", code: "api_error_529" },
+  { message: "Request failed.", code: "overloaded_error" },
+  { message: "Please try again later.", code: "serverOverloaded" },
+  { message: "This model is currently overloaded.", code: null },
+  { message: "The model is currently at capacity due to high demand.", code: null },
+])("recognizes temporary provider capacity: %s", (input) => {
+  assert.equal(makeProviderFailure({ ...input, class: "provider_error" }).class, "capacity_limit");
+});
+
+it.each([
+  { message: "Invalid API key.", code: "api_error_401", class: "permission_error" as const },
+  { message: "Usage limit reached.", code: "rateLimitExceeded", class: "usage_limit" as const },
+  {
+    message: "Context window capacity exceeded.",
+    code: "contextWindowExceeded",
+    class: "validation_error" as const,
+  },
+  {
+    message: "The context window is at capacity.",
+    code: "contextWindowExceeded",
+    class: "provider_error" as const,
+  },
+  { message: "The account is at capacity.", code: null, class: "provider_error" as const },
+  {
+    message: "Context window capacity exceeded.",
+    code: "capacity_exceeded",
+    class: "provider_error" as const,
+  },
+  {
+    message: "Connection failed.",
+    code: "httpConnectionFailed",
+    class: "transport_error" as const,
+  },
+  { message: "Model is at capacity.", code: null, class: "permission_error" as const },
+  {
+    message: "Model is at capacity.",
+    code: null,
+    class: "provider_error" as const,
+    retryable: false,
+  },
+])("keeps other failures out of capacity recovery: %s", (input) => {
+  assert.equal(makeProviderFailure(input).class, input.class);
+});
+
 it("redacts credentials and URL secrets from provider failures", () => {
   const failure = makeProviderFailure({
     message:

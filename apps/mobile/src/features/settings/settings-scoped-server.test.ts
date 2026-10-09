@@ -20,7 +20,35 @@ const firstProject = "first-project" as ProjectId;
 const secondProject = "second-project" as ProjectId;
 
 describe("mobile usage-limit settings across environments", () => {
-  it.each(["autoResumeLimitedThreads", "snoozeLimitedThreads"] as const)(
+  it("compares retry ranges by value and applies both bounds to selected environments", () => {
+    const capacityRetryDelay = { minMinutes: 2, maxMinutes: 4 };
+    const targets = resolveMobileSettingsTargets(
+      [
+        environment(firstId, { ...DEFAULT_SERVER_SETTINGS, capacityRetryDelay }),
+        environment(secondId, {
+          ...DEFAULT_SERVER_SETTINGS,
+          capacityRetryDelay: { ...capacityRetryDelay },
+        }),
+      ],
+      null,
+    );
+    expect(uniformMobileSetting(targets, "capacityRetryDelay")).toEqual(capacityRetryDelay);
+    const different = targets.map((target, index) => ({
+      ...target,
+      settings: {
+        ...target.settings,
+        capacityRetryDelay: index === 0 ? capacityRetryDelay : { minMinutes: 10, maxMinutes: 20 },
+      },
+    }));
+    expect(uniformMobileSetting(different, "capacityRetryDelay")).toBeNull();
+    expect(planMobileScopedSettingsPatch(different, false, { capacityRetryDelay })).toEqual([
+      { environmentId: firstId, patch: { capacityRetryDelay } },
+      { environmentId: secondId, patch: { capacityRetryDelay } },
+    ]);
+    expect(planMobileScopedSettingsPatch(targets, true, { capacityRetryDelay })).toEqual([]);
+  });
+
+  it.each(["autoResumeLimitedThreads", "autoRetryCapacityErrors", "snoozeLimitedThreads"] as const)(
     "shows %s as mixed and can enable it everywhere without changing other settings",
     (key) => {
       const targets = resolveMobileSettingsTargets(
